@@ -215,7 +215,6 @@ set(FFX_PUBLIC_SHADER_SOURCES
     "${FFX_GPU_PATH}/ffx_core_glsl.h"
     "${FFX_GPU_PATH}/ffx_core_gpu_common.h"
     "${FFX_GPU_PATH}/ffx_core_gpu_common_half.h"
-    "${FFX_GPU_PATH}/ffx_core_hlsl.h"
     "${FFX_GPU_PATH}/ffx_core_portability.h")
 
 if(FFX_API_BACKEND STREQUAL DX12_X64)

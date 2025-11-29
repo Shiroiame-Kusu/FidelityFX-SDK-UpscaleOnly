@@ -63,10 +63,6 @@
     #include "ffx_core_glsl.h"
 #endif // #if defined(FFX_GLSL) && defined(FFX_GPU)
 
-#if defined(FFX_HLSL) && defined(FFX_GPU)
-    #include "ffx_core_hlsl.h"
-#endif // #if defined(FFX_HLSL) && defined(FFX_GPU)
-
 #if defined(FFX_GPU)
     #include "ffx_core_gpu_common.h"
     #include "ffx_core_gpu_common_half.h"

@@ -36,7 +36,6 @@
 #include <FidelityFX/gpu/ffx_core.h>
 #include <FidelityFX/gpu/fsr1/ffx_fsr1.h>
 #include <FidelityFX/gpu/spd/ffx_spd.h>
-#include <FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_callbacks_hlsl.h>
 #include <FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_resources.h>
 #include <FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_common.h>
 #include <ffx_object_management.h>
