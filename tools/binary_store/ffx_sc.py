@@ -736,16 +736,25 @@ class GLSLCompiler(ICompiler):
             self.glslang_exe = os.path.join(script_dir,"windows", "glslangValidator.exe")
         else:
             self.glslang_exe = os.path.join(script_dir,"linux", "glslangValidator")
+        returncode = 1
         try:
             returncode = subprocess.run([self.glslang_exe, "--version"], capture_output=True).returncode
+            if returncode != 0:
+                raise Exception(f"glslangValidator executable not runnable: {self.glslang_exe}")
         except Exception:
             try:
                 returncode = subprocess.run(["glslangValidator", "--version"], capture_output=True).returncode
-                self.glslang_exe = "glslangValidator"
+                if returncode == 0:
+                    self.glslang_exe = "glslangValidator"
+                else:
+                    raise Exception("returncode != 0")
             except Exception:
                 try:
                     returncode = subprocess.run([os.path.join(VULKAN_SDK_BUILD_DIR,"tools","bin", "glslangValidator"), "--version"], capture_output=True).returncode
-                    self.glslang_exe = os.path.join(VULKAN_SDK_BUILD_DIR,"tools","bin", "glslangValidator")
+                    if returncode == 0:
+                        self.glslang_exe = os.path.join(VULKAN_SDK_BUILD_DIR,"tools","bin", "glslangValidator")
+                    else:
+                        returncode = 1
                 except Exception:
                     returncode = 1
         if returncode != 0:
@@ -754,16 +763,25 @@ class GLSLCompiler(ICompiler):
             self.spirv_cross_exe = os.path.join(script_dir,"windows", "spirv-cross.exe")
         else:
             self.spirv_cross_exe = os.path.join(script_dir,"linux", "spirv-cross")
+        returncode = 1
         try:
             returncode = subprocess.run([self.spirv_cross_exe, "--help"], capture_output=True).returncode
+            if returncode != 0:
+                raise Exception("returncode != 0")
         except Exception:
             try:
                 returncode = subprocess.run(["spirv-cross", "--help"], capture_output=True).returncode
-                self.spirv_cross_exe = "spirv-cross"
+                if returncode == 0:
+                    self.spirv_cross_exe = "spirv-cross"
+                else:
+                    raise Exception("returncode != 0")
             except Exception:
                 try:
                     returncode = subprocess.run([os.path.join(VULKAN_SDK_BUILD_DIR,"tools","bin", "spirv-cross"), "--help"], capture_output=True).returncode
-                    self.spirv_cross_exe = os.path.join(VULKAN_SDK_BUILD_DIR,"tools","bin", "spirv-cross")
+                    if returncode == 0:
+                        self.spirv_cross_exe = os.path.join(VULKAN_SDK_BUILD_DIR,"tools","bin", "spirv-cross")
+                    else:
+                        returncode = 1
                 except Exception:
                     returncode = 1
         if returncode != 0:
