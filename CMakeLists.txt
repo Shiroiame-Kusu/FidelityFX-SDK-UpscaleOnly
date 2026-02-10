@@ -27,10 +27,24 @@ set(FFX_FSR3UPSCALER ON)
 set(FFX_FSR2 ON)
 set(FFX_FSR1 ON)
 
+if(POLICY CMP0091)
+	# Enable CMAKE_MSVC_RUNTIME_LIBRARY
+	cmake_policy(SET CMP0091 NEW)
+endif()
+
 if(POLICY CMP0147)
 	# parallel custom command builds (used for shader compilation)
 	cmake_policy(SET CMP0147 NEW)
 endif()
+
+# Use static runtime library (MT/MTd) instead of dynamic (MD/MDd)
+# MUST be set before project() command
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+# Enable position independent code for all targets (required for shared libraries on Linux)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Clean a bit before
 unset(FFX_GDK CACHE)
@@ -141,8 +155,6 @@ if (NOT FFX_CUSTOM_API)
 	if(MSVC)
 		# Embed PDBs in the debug versions of the libs
 		set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Z7 /Od")
-		
-		set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 	endif()
     
 	# Write debug, profile, and release versions of the static libs to the /bin folder as they are uniquely named	
@@ -158,21 +170,6 @@ if (NOT FFX_CUSTOM_API)
 		set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_HOME_DIRECTORY}/bin/ffx_sdk/)
         set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS FFX_BUILD_AS_DLL)
 	endif()
-else()
-
-	# Ouput the static libs to the /bin folder as they are uniquely named
-	set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${BIN_OUTPUT}/ffx_sdk)
-	foreach( OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES} )
-		string( TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG )
-		set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${BIN_OUTPUT}/ffx_sdk/ )
-		if (FFX_BUILD_AS_DLL)
-			# Write both debug and release versions of the dlls to the /bin folder as they are uniquely named
-			set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_HOME_DIRECTORY}/bin/ffx_sdk/)
-			set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_HOME_DIRECTORY}/bin/ffx_sdk/)
-			set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_HOME_DIRECTORY}/bin/ffx_sdk/)
-		endif()
-	endforeach( OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES )
-
 endif()
 
 if (FFX_FSR3)

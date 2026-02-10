@@ -731,6 +731,8 @@ class GLSLCompiler(ICompiler):
             debug_compile,
         )
         extra_dirs = [script_dir]
+        if os.name != "nt":
+            extra_dirs.append("/usr/bin")
         extra_dirs.append(os.path.join(script_dir, "glslangValidator"))
         extra_dirs.append(os.path.join(script_dir, "spirv-cross"))
         vulkan_sdk = os.environ.get("VULKAN_SDK")

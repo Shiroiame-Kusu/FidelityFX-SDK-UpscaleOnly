@@ -111,5 +111,8 @@ gradle-app.setting
 
 **/build/
 **/buildWin/
+**/buildWindows/
+**/buildLinux/
+
 **/out/
 **/bin/
