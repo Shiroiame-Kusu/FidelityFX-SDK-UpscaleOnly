@@ -318,6 +318,54 @@ def parse_command_line(args: List[str]) -> LaunchParameters:
                 else:
                     params.compiler_args.append("-D" + defn)
 
+        # Detect defines duplicated by shell brace expansion (e.g., bash
+        # expanding -DNAME={0,1} into -DNAME=0 -DNAME=1) and convert them
+        # back into permutation options.
+        if not params.permutation_options:
+            from collections import OrderedDict
+
+            define_groups = OrderedDict()
+            for arg in params.compiler_args:
+                if arg.startswith("-D"):
+                    name, _, value = arg[2:].partition("=")
+                    if name not in define_groups:
+                        define_groups[name] = []
+                    define_groups[name].append(value)
+
+            duplicated_names = {
+                name for name, vals in define_groups.items() if len(vals) > 1
+            }
+
+            if duplicated_names:
+                new_compiler_args = []
+                seen_dup_defines = set()
+                for arg in params.compiler_args:
+                    if arg.startswith("-D"):
+                        name, _, _ = arg[2:].partition("=")
+                        if name in duplicated_names:
+                            if name not in seen_dup_defines:
+                                seen_dup_defines.add(name)
+                                values = define_groups[name]
+                                is_numeric = all(
+                                    v.isdigit() or v == "-" for v in values
+                                )
+                                num_bits = (
+                                    int(math.ceil(math.log2(len(values))))
+                                    if len(values) > 1
+                                    else 1
+                                )
+                                params.permutation_options.append(
+                                    PermutationOption(
+                                        definition=name,
+                                        values=values,
+                                        num_bits=num_bits,
+                                        is_numeric=is_numeric,
+                                    )
+                                )
+                            continue
+                    new_compiler_args.append(arg)
+                params.compiler_args = new_compiler_args
+
     i = 0
     while i < len(unknown):
         arg = unknown[i]
