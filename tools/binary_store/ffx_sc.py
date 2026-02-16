@@ -318,6 +318,54 @@ def parse_command_line(args: List[str]) -> LaunchParameters:
                 else:
                     params.compiler_args.append("-D" + defn)
 
+        # Detect defines duplicated by shell brace expansion (e.g., bash
+        # expanding -DNAME={0,1} into -DNAME=0 -DNAME=1) and convert them
+        # back into permutation options.
+        if not params.permutation_options:
+            from collections import OrderedDict
+
+            define_groups = OrderedDict()
+            for arg in params.compiler_args:
+                if arg.startswith("-D"):
+                    name, _, value = arg[2:].partition("=")
+                    if name not in define_groups:
+                        define_groups[name] = []
+                    define_groups[name].append(value)
+
+            duplicated_names = {
+                name for name, vals in define_groups.items() if len(vals) > 1
+            }
+
+            if duplicated_names:
+                new_compiler_args = []
+                seen_dup_defines = set()
+                for arg in params.compiler_args:
+                    if arg.startswith("-D"):
+                        name, _, _ = arg[2:].partition("=")
+                        if name in duplicated_names:
+                            if name not in seen_dup_defines:
+                                seen_dup_defines.add(name)
+                                values = define_groups[name]
+                                is_numeric = all(
+                                    v.isdigit() or v == "-" for v in values
+                                )
+                                num_bits = (
+                                    int(math.ceil(math.log2(len(values))))
+                                    if len(values) > 1
+                                    else 1
+                                )
+                                params.permutation_options.append(
+                                    PermutationOption(
+                                        definition=name,
+                                        values=values,
+                                        num_bits=num_bits,
+                                        is_numeric=is_numeric,
+                                    )
+                                )
+                            continue
+                    new_compiler_args.append(arg)
+                params.compiler_args = new_compiler_args
+
     i = 0
     while i < len(unknown):
         arg = unknown[i]
@@ -660,6 +708,56 @@ def print_help():
 
 class GLSLCompiler():
 
+    @staticmethod
+    def _find_tool(name: str, test_arg: str = "--version") -> str:
+        """Find a tool executable, preferring bundled > VULKAN_SDK > system PATH."""
+        VULKAN_SDK_BUILD_DIR = os.environ.get("VULKAN_SDK_BUILD_DIR")
+        VULKAN_SDK_DIR = os.environ.get("VULKAN_SDK")
+        extra_str = ".exe" if os.name == "nt" else ""
+
+        candidates = []
+
+        # 1. Try local bundled executable first (version-matched to this SDK)
+        if os.name == "nt":
+            candidates.append(os.path.join(script_dir, "windows", name + ".exe"))
+        else:
+            candidates.append(os.path.join(script_dir, "linux", name))
+
+        # 2. Try VULKAN_SDK_BUILD_DIR
+        if VULKAN_SDK_BUILD_DIR:
+            candidates.append(
+                os.path.join(VULKAN_SDK_BUILD_DIR, "tools", "bin", name + extra_str)
+            )
+
+        # 3. Try VULKAN_SDK
+        if VULKAN_SDK_DIR:
+            candidates.append(
+                os.path.join(VULKAN_SDK_DIR, "Bin", name + extra_str)
+            )
+
+        # 4. Try system PATH
+        candidates.append(name)
+
+        for candidate in candidates:
+            try:
+                # Ensure execute permission for bundled Linux binaries
+                if os.path.isfile(candidate) and os.name != "nt":
+                    if not os.access(candidate, os.X_OK):
+                        os.chmod(candidate, os.stat(candidate).st_mode | 0o111)
+
+                result = subprocess.run(
+                    [candidate, test_arg], capture_output=True
+                )
+                if result.returncode == 0:
+                    return candidate
+            except Exception:
+                pass
+
+        raise FileNotFoundError(
+            f"{name} executable not found. Please install Vulkan SDK or "
+            f"ensure {name} is in PATH."
+        )
+
     def __init__(
         self,
         glslang_bin: str,
@@ -677,182 +775,11 @@ class GLSLCompiler():
         self.output_path = output_path
         self.disable_logs = disable_logs
         self.debug_compile = debug_compile
-        # Github Action
-        VULKAN_SDK_BUILD_DIR: str = os.environ.get("VULKAN_SDK_BUILD_DIR")
-        VULKAN_SDK_DIR: str = os.environ.get("VULKAN_SDK")
-        extra_str = ""
-        if os.name == "nt":
-            extra_str = ".exe"
-        returncode = 1
 
-        # Try system PATH first (most reliable in CI environments)
-        try:
-            returncode = subprocess.run(
-                ["glslangValidator", "--version"], capture_output=True
-            ).returncode
-            if returncode == 0:
-                self.glslang_bin = "glslangValidator"
-        except Exception:
-            pass
+        self.glslang_bin = self._find_tool("glslangValidator", "--version")
+        self.spirv_cross_bin = self._find_tool("spirv-cross", "--help")
+        self.spirv_reflect_bin = self._find_tool("spirv-reflect", "--help")
 
-        # Try VULKAN_SDK_BUILD_DIR if available
-        if returncode != 0 and VULKAN_SDK_BUILD_DIR:
-            try:
-                vulkan_glslang = os.path.join(
-                    VULKAN_SDK_BUILD_DIR, "tools", "bin", "glslangValidator" + extra_str
-                )
-                returncode = subprocess.run(
-                    [vulkan_glslang, "--version"], capture_output=True
-                ).returncode
-                if returncode == 0:
-                    self.glslang_bin = vulkan_glslang
-            except Exception:
-                pass
-        if returncode != 0 and VULKAN_SDK_DIR:
-            try:
-                vulkan_glslang = os.path.join(
-                    VULKAN_SDK_DIR, "Bin", "glslangValidator" + extra_str   
-                )
-                returncode = subprocess.run(
-                    [vulkan_glslang, "--version"], capture_output=True
-                ).returncode
-                if returncode == 0:
-                    self.glslang_bin = vulkan_glslang
-            except Exception:
-                pass
-        # Try local bundled executable as last resort
-        if returncode != 0:
-            if os.name == "nt":
-                self.glslang_bin = os.path.join(
-                    script_dir, "windows", "glslangValidator.exe"
-                )
-            else:
-                self.glslang_bin = os.path.join(script_dir, "linux", "glslangValidator")
-            try:
-                returncode = subprocess.run(
-                    [self.glslang_bin, "--version"], capture_output=True
-                ).returncode
-            except Exception:
-                pass
-
-        if returncode != 0:
-            raise FileNotFoundError(
-                f"glslangValidator executable not found. Please install Vulkan SDK or ensure glslangValidator is in PATH."
-            )
-        returncode = 1
-
-        # Try system PATH first (most reliable in CI environments)
-        try:
-            returncode = subprocess.run(
-                ["spirv-cross", "--help"], capture_output=True
-            ).returncode
-            if returncode == 0:
-                self.spirv_cross_bin = "spirv-cross"
-        except Exception:
-            pass
-
-        # Try VULKAN_SDK_BUILD_DIR if available
-        if returncode != 0 and VULKAN_SDK_BUILD_DIR:
-            try:
-                vulkan_spirv = os.path.join(
-                    VULKAN_SDK_BUILD_DIR, "tools", "bin", "spirv-cross" + extra_str
-                )
-                returncode = subprocess.run(
-                    [vulkan_spirv, "--help"], capture_output=True
-                ).returncode
-                if returncode == 0:
-                    self.spirv_cross_bin = vulkan_spirv
-            except Exception:
-                pass
-        if returncode != 0 and VULKAN_SDK_DIR:
-            try:
-                vulkan_spirv = os.path.join(
-                    VULKAN_SDK_DIR, "Bin", "spirv-cross" + extra_str
-                )
-                returncode = subprocess.run(
-                    [vulkan_spirv, "--help"], capture_output=True
-                ).returncode
-                if returncode == 0:
-                    self.spirv_cross_bin = vulkan_spirv
-            except Exception:
-                pass
-
-        # Try local bundled executable as last resort
-        if returncode != 0:
-            if os.name == "nt":
-                self.spirv_cross_bin = os.path.join(
-                    script_dir, "windows", "spirv-cross.exe"
-                )
-            else:
-                self.spirv_cross_bin = os.path.join(script_dir, "linux", "spirv-cross")
-            try:
-                returncode = subprocess.run(
-                    [self.spirv_cross_bin, "--help"], capture_output=True
-                ).returncode
-            except Exception:
-                pass
-
-        if returncode != 0:
-            raise FileNotFoundError(
-                f"spirv-cross executable not found. Please install Vulkan SDK or ensure spirv-cross is in PATH."
-            )
-        self.spirv_reflect_bin = ""
-        returncode = 1
-        # Try system PATH first (most reliable in CI environments)
-        try:
-            returncode = subprocess.run(
-                ["spirv-reflect", "--help"], capture_output=True
-            ).returncode
-            if returncode == 0:
-                self.spirv_reflect_bin = "spirv-reflect"
-        except Exception:
-            pass
-
-        # Try VULKAN_SDK_BUILD_DIR if available
-        if returncode != 0 and VULKAN_SDK_BUILD_DIR:
-            try:
-                vulkan_spirv = os.path.join(
-                    VULKAN_SDK_BUILD_DIR, "tools", "bin", "spirv-reflect" + extra_str
-                )
-                returncode = subprocess.run(
-                    [vulkan_spirv, "--help"], capture_output=True
-                ).returncode
-                if returncode == 0:
-                    self.spirv_reflect_bin = vulkan_spirv
-            except Exception:
-                pass
-        if returncode != 0 and VULKAN_SDK_DIR:
-            try:
-                vulkan_spirv = os.path.join(
-                    VULKAN_SDK_DIR, "Bin", "spirv-reflect" + extra_str
-                )
-                returncode = subprocess.run(
-                    [vulkan_spirv, "--help"], capture_output=True
-                ).returncode
-                if returncode == 0:
-                    self.spirv_reflect_bin = vulkan_spirv
-            except Exception:
-
-                pass
-        # Try local bundled executable as last resort
-        if returncode != 0:
-            if os.name == "nt":
-                self.spirv_reflect_bin = os.path.join(
-                    script_dir, "windows", "spirv-reflect.exe"
-                )
-            else:
-                self.spirv_reflect_bin = os.path.join(script_dir, "linux", "spirv-reflect")
-            try:
-                returncode = subprocess.run(
-                    [self.spirv_reflect_bin, "--help"], capture_output=True
-                ).returncode
-            except Exception:
-                pass
-
-        if returncode != 0:
-            raise FileNotFoundError(
-                f"spirv-reflect executable not found. Please install Vulkan SDK or ensure spirv-reflect is in PATH."
-            )
         self.shader_dependencies = set()
         self.shader_dependencies_collected = False
 
